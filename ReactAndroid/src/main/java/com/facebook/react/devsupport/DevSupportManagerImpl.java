@@ -13,7 +13,10 @@ import javax.annotation.Nullable;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -40,7 +43,6 @@ import com.facebook.react.R;
 import com.facebook.react.bridge.CatalystInstance;
 import com.facebook.react.bridge.DefaultNativeModuleCallExceptionHandler;
 import com.facebook.react.bridge.JavaJSExecutor;
-import com.facebook.react.bridge.NativeModuleCallExceptionHandler;
 import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.ReadableArray;
 import com.facebook.react.bridge.UiThreadUtil;
@@ -104,18 +106,18 @@ public class DevSupportManagerImpl implements DevSupportManager {
   private @Nullable DebugOverlayController mDebugOverlayController;
   private @Nullable ReactContext mCurrentContext;
   private DevInternalSettings mDevSettings;
-  private boolean mIsUsingJSProxy = false;
   private boolean mIsReceiverRegistered = false;
   private boolean mIsShakeDetectorStarted = false;
   private boolean mIsDevSupportEnabled = false;
   private boolean mIsCurrentlyProfiling = false;
   private int     mProfileIndex = 0;
+  private @Nullable RedBoxHandler mRedBoxHandler;
 
   public DevSupportManagerImpl(
-      Context applicationContext,
-      ReactInstanceDevCommandsHandler reactInstanceCommandsHandler,
-      @Nullable String packagerPathForJSBundleName,
-      boolean enableOnCreate) {
+    Context applicationContext,
+    ReactInstanceDevCommandsHandler reactInstanceCommandsHandler,
+    @Nullable String packagerPathForJSBundleName,
+    boolean enableOnCreate) {
     mReactInstanceCommandsHandler = reactInstanceCommandsHandler;
     mApplicationContext = applicationContext;
     mJSAppBundleName = packagerPathForJSBundleName;
@@ -137,10 +139,10 @@ public class DevSupportManagerImpl implements DevSupportManager {
         String action = intent.getAction();
         if (DevServerHelper.getReloadAppAction(context).equals(action)) {
           if (intent.getBooleanExtra(DevServerHelper.RELOAD_APP_EXTRA_JS_PROXY, false)) {
-            mIsUsingJSProxy = true;
-            mDevServerHelper.launchChromeDevtools();
+            mDevSettings.setRemoteJSDebugEnabled(true);
+            mDevServerHelper.launchJSDevtools();
           } else {
-            mIsUsingJSProxy = false;
+            mDevSettings.setRemoteJSDebugEnabled(false);
           }
           handleReloadJS();
         }
@@ -157,6 +159,21 @@ public class DevSupportManagerImpl implements DevSupportManager {
     mDefaultNativeModuleCallExceptionHandler = new DefaultNativeModuleCallExceptionHandler();
 
     setDevSupportEnabled(enableOnCreate);
+  }
+
+  public DevSupportManagerImpl(
+      Context applicationContext,
+      ReactInstanceDevCommandsHandler reactInstanceCommandsHandler,
+      @Nullable String packagerPathForJSBundleName,
+      boolean enableOnCreate,
+      @Nullable RedBoxHandler redBoxHandler) {
+
+    this(applicationContext,
+      reactInstanceCommandsHandler,
+      packagerPathForJSBundleName,
+      enableOnCreate);
+
+    mRedBoxHandler = redBoxHandler;
   }
 
   @Override
@@ -208,12 +225,23 @@ public class DevSupportManagerImpl implements DevSupportManager {
                 errorCookie != mRedBoxDialog.getErrorCookie()) {
               return;
             }
-            mRedBoxDialog.setExceptionDetails(
-                message,
-                StackTraceHelper.convertJsStackTrace(details));
+            StackFrame[] stack = StackTraceHelper.convertJsStackTrace(details);
+            mRedBoxDialog.setExceptionDetails(message, stack);
+            mRedBoxDialog.setErrorCookie(errorCookie);
+            if (mRedBoxHandler != null) {
+              mRedBoxHandler.handleRedbox(message, stack);
+            }
             mRedBoxDialog.show();
           }
         });
+  }
+
+  @Override
+  public void hideRedboxDialog() {
+    // dismiss redbox if exists
+    if (mRedBoxDialog != null) {
+      mRedBoxDialog.dismiss();
+    }
   }
 
   private void showNewError(
@@ -235,6 +263,9 @@ public class DevSupportManagerImpl implements DevSupportManager {
             }
             mRedBoxDialog.setExceptionDetails(message, stack);
             mRedBoxDialog.setErrorCookie(errorCookie);
+            if (mRedBoxHandler != null) {
+              mRedBoxHandler.handleRedbox(message, stack);
+            }
             mRedBoxDialog.show();
           }
         });
@@ -255,30 +286,39 @@ public class DevSupportManagerImpl implements DevSupportManager {
           }
         });
     options.put(
-        mIsUsingJSProxy ?
+        mDevSettings.isRemoteJSDebugEnabled() ?
             mApplicationContext.getString(R.string.catalyst_debugjs_off) :
             mApplicationContext.getString(R.string.catalyst_debugjs),
         new DevOptionHandler() {
           @Override
           public void onOptionSelected() {
-            mIsUsingJSProxy = !mIsUsingJSProxy;
+            mDevSettings.setRemoteJSDebugEnabled(!mDevSettings.isRemoteJSDebugEnabled());
             handleReloadJS();
           }
         });
     options.put(
-        mDevSettings.isReloadOnJSChangeEnabled()
-            ? mApplicationContext.getString(R.string.catalyst_live_reload_off)
-            : mApplicationContext.getString(R.string.catalyst_live_reload),
-        new DevOptionHandler() {
-          @Override
-          public void onOptionSelected() {
-            mDevSettings.setReloadOnJSChangeEnabled(!mDevSettings.isReloadOnJSChangeEnabled());
-          }
-        });
+      mDevSettings.isReloadOnJSChangeEnabled()
+        ? mApplicationContext.getString(R.string.catalyst_live_reload_off)
+        : mApplicationContext.getString(R.string.catalyst_live_reload),
+      new DevOptionHandler() {
+        @Override
+        public void onOptionSelected() {
+          mDevSettings.setReloadOnJSChangeEnabled(!mDevSettings.isReloadOnJSChangeEnabled());
+        }
+      });
     options.put(
-        mDevSettings.isElementInspectorEnabled()
-          ? mApplicationContext.getString(R.string.catalyst_element_inspector_off)
-          : mApplicationContext.getString(R.string.catalyst_element_inspector),
+            mDevSettings.isHotModuleReplacementEnabled()
+                    ? mApplicationContext.getString(R.string.catalyst_hot_module_replacement_off)
+                    : mApplicationContext.getString(R.string.catalyst_hot_module_replacement),
+            new DevOptionHandler() {
+              @Override
+              public void onOptionSelected() {
+                mDevSettings.setHotModuleReplacementEnabled(!mDevSettings.isHotModuleReplacementEnabled());
+                handleReloadJS();
+              }
+            });
+    options.put(
+      mApplicationContext.getString(R.string.catalyst_element_inspector),
         new DevOptionHandler() {
           @Override
           public void onOptionSelected() {
@@ -287,13 +327,32 @@ public class DevSupportManagerImpl implements DevSupportManager {
           }
         });
     options.put(
-        mDevSettings.isFpsDebugEnabled()
-            ? mApplicationContext.getString(R.string.catalyst_perf_monitor_off)
-            : mApplicationContext.getString(R.string.catalyst_perf_monitor),
+      mDevSettings.isFpsDebugEnabled()
+        ? mApplicationContext.getString(R.string.catalyst_perf_monitor_off)
+        : mApplicationContext.getString(R.string.catalyst_perf_monitor),
+      new DevOptionHandler() {
+        @Override
+        public void onOptionSelected() {
+          mDevSettings.setFpsDebugEnabled(!mDevSettings.isFpsDebugEnabled());
+        }
+      });
+    options.put(
+        mApplicationContext.getString(R.string.catalyst_heap_capture),
         new DevOptionHandler() {
           @Override
           public void onOptionSelected() {
-            mDevSettings.setFpsDebugEnabled(!mDevSettings.isFpsDebugEnabled());
+            try {
+              String heapDumpPath = mApplicationContext.getCacheDir().getPath();
+              List<String> captureFiles = JSCHeapCapture.captureHeap(heapDumpPath, 60000);
+              for (String captureFile : captureFiles) {
+                Toast.makeText(
+                  mCurrentContext,
+                  "Heap captured to " + captureFile,
+                  Toast.LENGTH_LONG).show();
+              }
+            } catch (JSCHeapCapture.CaptureException e) {
+              showNewJavaError(e.getMessage(), e);
+            }
           }
         });
     if (mCurrentContext != null &&
@@ -302,7 +361,7 @@ public class DevSupportManagerImpl implements DevSupportManager {
         mCurrentContext.getCatalystInstance().supportsProfiling()) {
       options.put(
           mApplicationContext.getString(
-              mIsCurrentlyProfiling ? R.string.catalyst_stop_profile :
+            mIsCurrentlyProfiling ? R.string.catalyst_stop_profile :
                   R.string.catalyst_start_profile),
           new DevOptionHandler() {
             @Override
@@ -511,6 +570,18 @@ public class DevSupportManagerImpl implements DevSupportManager {
       mDebugOverlayController = new DebugOverlayController(reactContext);
     }
 
+    if (mDevSettings.isHotModuleReplacementEnabled() && mCurrentContext != null) {
+      try {
+        URL sourceUrl = new URL(getSourceUrl());
+        String path = sourceUrl.getPath().substring(1); // strip initial slash in path
+        String host = sourceUrl.getHost();
+        int port = sourceUrl.getPort();
+        mCurrentContext.getJSModule(HMRClient.class).enable("android", path, host, port);
+      } catch (MalformedURLException e) {
+        showNewJavaError(e.getMessage(), e);
+      }
+    }
+
     reloadSettings();
   }
 
@@ -531,13 +602,13 @@ public class DevSupportManagerImpl implements DevSupportManager {
     ProgressDialog progressDialog = new ProgressDialog(mApplicationContext);
     progressDialog.setTitle(R.string.catalyst_jsload_title);
     progressDialog.setMessage(mApplicationContext.getString(
-        mIsUsingJSProxy ? R.string.catalyst_remotedbg_message : R.string.catalyst_jsload_message));
+        mDevSettings.isRemoteJSDebugEnabled() ? R.string.catalyst_remotedbg_message : R.string.catalyst_jsload_message));
     progressDialog.setIndeterminate(true);
     progressDialog.setCancelable(false);
     progressDialog.getWindow().setType(WindowManager.LayoutParams.TYPE_SYSTEM_ALERT);
     progressDialog.show();
 
-    if (mIsUsingJSProxy) {
+    if (mDevSettings.isRemoteJSDebugEnabled()) {
       reloadJSInProxyMode(progressDialog);
     } else {
       reloadJSFromServer(progressDialog);
@@ -552,7 +623,7 @@ public class DevSupportManagerImpl implements DevSupportManager {
   private void reloadJSInProxyMode(final ProgressDialog progressDialog) {
     // When using js proxy, there is no need to fetch JS bundle as proxy executor will do that
     // anyway
-    mDevServerHelper.launchChromeDevtools();
+    mDevServerHelper.launchJSDevtools();
 
     JavaJSExecutor.Factory factory = new JavaJSExecutor.Factory() {
       @Override
@@ -622,7 +693,7 @@ public class DevSupportManagerImpl implements DevSupportManager {
                   public void run() {
                     if (cause instanceof DebugServerException) {
                       DebugServerException debugServerException = (DebugServerException) cause;
-                      showNewJavaError(debugServerException.description, cause);
+                      showNewJavaError(debugServerException.getMessage(), cause);
                     } else {
                       showNewJavaError(
                           mApplicationContext.getString(R.string.catalyst_jsload_error),
