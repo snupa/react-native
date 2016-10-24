@@ -34,9 +34,9 @@ import com.facebook.react.uimanager.IllegalViewOperationException;
               toValue,
               fromValue,
               toValue,
-              Animation.RELATIVE_TO_SELF,
+              Animation.RELATIVE_TO_PARENT,
               .5f,
-              Animation.RELATIVE_TO_SELF,
+              Animation.RELATIVE_TO_PARENT,
               .5f);
         default:
           throw new IllegalViewOperationException(

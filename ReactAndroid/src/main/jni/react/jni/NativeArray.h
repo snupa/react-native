@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include <fb/fbjni.h>
+#include <jni/fbjni.h>
 #include <folly/dynamic.h>
 
 namespace facebook {
@@ -17,7 +17,7 @@ class NativeArray : public jni::HybridClass<NativeArray> {
   bool isConsumed = false;
   folly::dynamic array;
 
-  jni::local_ref<jstring> toString();
+  jstring toString();
 
   static void registerNatives();
 

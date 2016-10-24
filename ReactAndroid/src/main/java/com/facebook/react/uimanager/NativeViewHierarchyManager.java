@@ -12,7 +12,6 @@ package com.facebook.react.uimanager;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.NotThreadSafe;
 
-import android.content.res.Resources;
 import android.util.SparseArray;
 import android.util.SparseBooleanArray;
 import android.view.Menu;
@@ -35,7 +34,6 @@ import com.facebook.react.bridge.SoftAssertions;
 import com.facebook.react.bridge.UiThreadUtil;
 import com.facebook.react.touch.JSResponderHandler;
 import com.facebook.react.uimanager.layoutanimation.LayoutAnimationController;
-import com.facebook.react.uimanager.layoutanimation.LayoutAnimationListener;
 import com.facebook.systrace.Systrace;
 import com.facebook.systrace.SystraceMessage;
 
@@ -295,8 +293,8 @@ public class NativeViewHierarchyManager {
       @Nullable int[] indicesToRemove,
       @Nullable ViewAtIndex[] viewsToAdd,
       @Nullable int[] tagsToDelete) {
-    final ViewGroup viewToManage = (ViewGroup) mTagsToViews.get(tag);
-    final ViewGroupManager viewManager = (ViewGroupManager) resolveViewManager(tag);
+    ViewGroup viewToManage = (ViewGroup) mTagsToViews.get(tag);
+    ViewGroupManager viewManager = (ViewGroupManager) resolveViewManager(tag);
     if (viewToManage == null) {
       throw new IllegalViewOperationException("Trying to manageChildren view with tag " + tag +
         " which doesn't exist\n detail: " +
@@ -345,18 +343,7 @@ public class NativeViewHierarchyManager {
                       viewsToAdd,
                       tagsToDelete));
         }
-
-        View viewToRemove = viewToManage.getChildAt(indexToRemove);
-
-        if (mLayoutAnimationEnabled &&
-            mLayoutAnimator.shouldAnimateLayout(viewToRemove) &&
-            arrayContains(tagsToDelete, viewToRemove.getId())) {
-          // The view will be removed and dropped by the 'delete' layout animation
-          // instead, so do nothing
-        } else {
-          viewManager.removeViewAt(viewToManage, indexToRemove);
-        }
-
+        viewManager.removeViewAt(viewToManage, indicesToRemove[i]);
         lastIndexToRemove = indexToRemove;
       }
     }
@@ -383,7 +370,7 @@ public class NativeViewHierarchyManager {
     if (tagsToDelete != null) {
       for (int i = 0; i < tagsToDelete.length; i++) {
         int tagToDelete = tagsToDelete[i];
-        final View viewToDestroy = mTagsToViews.get(tagToDelete);
+        View viewToDestroy = mTagsToViews.get(tagToDelete);
         if (viewToDestroy == null) {
           throw new IllegalViewOperationException(
               "Trying to destroy unknown view tag: "
@@ -395,74 +382,8 @@ public class NativeViewHierarchyManager {
                       viewsToAdd,
                       tagsToDelete));
         }
-
-        if (mLayoutAnimationEnabled &&
-            mLayoutAnimator.shouldAnimateLayout(viewToDestroy)) {
-          mLayoutAnimator.deleteView(viewToDestroy, new LayoutAnimationListener() {
-            @Override
-            public void onAnimationEnd() {
-              viewManager.removeView(viewToManage, viewToDestroy);
-              dropView(viewToDestroy);
-            }
-          });
-        } else {
-          dropView(viewToDestroy);
-        }
+        dropView(viewToDestroy);
       }
-    }
-  }
-
-  private boolean arrayContains(int[] array, int ele) {
-    for (int curEle : array) {
-      if (curEle == ele) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /**
-   * Simplified version of constructManageChildrenErrorMessage that only deals with adding children
-   * views
-   */
-  private static String constructSetChildrenErrorMessage(
-    ViewGroup viewToManage,
-    ViewGroupManager viewManager,
-    ReadableArray childrenTags) {
-    ViewAtIndex[] viewsToAdd = new ViewAtIndex[childrenTags.size()];
-    for (int i = 0; i < childrenTags.size(); i++) {
-      viewsToAdd[i] = new ViewAtIndex(childrenTags.getInt(i), i);
-    }
-    return constructManageChildrenErrorMessage(
-      viewToManage,
-      viewManager,
-      null,
-      viewsToAdd,
-      null
-    );
-  }
-
-  /**
-   * Simplified version of manageChildren that only deals with adding children views
-   */
-  public void setChildren(
-    int tag,
-    ReadableArray childrenTags) {
-    ViewGroup viewToManage = (ViewGroup) mTagsToViews.get(tag);
-    ViewGroupManager viewManager = (ViewGroupManager) resolveViewManager(tag);
-
-    for (int i = 0; i < childrenTags.size(); i++) {
-      View viewToAdd = mTagsToViews.get(childrenTags.getInt(i));
-      if (viewToAdd == null) {
-        throw new IllegalViewOperationException(
-          "Trying to add unknown view tag: "
-            + childrenTags.getInt(i) + "\n detail: " +
-            constructSetChildrenErrorMessage(
-              viewToManage,
-              viewManager,
-              childrenTags));
-      }
-      viewManager.addView(viewToManage, viewToAdd, i);
     }
   }
 
@@ -499,7 +420,7 @@ public class NativeViewHierarchyManager {
   /**
    * Releases all references to given native View.
    */
-  protected void dropView(View view) {
+  protected final void dropView(View view) {
     UiThreadUtil.assertOnUiThread();
     if (!mRootTags.get(view.getId())) {
       // For non-root views we notify viewmanager with {@link ViewManager#onDropInstance}
@@ -557,37 +478,6 @@ public class NativeViewHierarchyManager {
 
     outputBuffer[0] = outputBuffer[0] - rootX;
     outputBuffer[1] = outputBuffer[1] - rootY;
-    outputBuffer[2] = v.getWidth();
-    outputBuffer[3] = v.getHeight();
-  }
-
-  /**
-   * Returns the coordinates of a view relative to the window (not just the RootView
-   * which is what measure will return)
-   *
-   * @param tag - the tag for the view
-   * @param outputBuffer - output buffer that contains [x,y,width,height] of the view in coordinates
-   *  relative to the device window
-   */
-  public void measureInWindow(int tag, int[] outputBuffer) {
-    UiThreadUtil.assertOnUiThread();
-    View v = mTagsToViews.get(tag);
-    if (v == null) {
-      throw new NoSuchNativeViewException("No native view for " + tag + " currently exists");
-    }
-
-    v.getLocationOnScreen(outputBuffer);
-
-    // We need to remove the status bar from the height.  getLocationOnScreen will include the
-    // status bar.
-    Resources resources = v.getContext().getResources();
-    int statusBarId = resources.getIdentifier("status_bar_height", "dimen", "android");
-    if (statusBarId > 0) {
-      int height = (int) resources.getDimension(statusBarId);
-      outputBuffer[1] -= height;
-    }
-
-    // outputBuffer[0,1] already contain what we want
     outputBuffer[2] = v.getWidth();
     outputBuffer[3] = v.getHeight();
   }

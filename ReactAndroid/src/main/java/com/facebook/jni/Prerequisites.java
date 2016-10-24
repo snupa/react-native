@@ -29,11 +29,11 @@ public class Prerequisites {
   private static final int EGL_OPENGL_ES2_BIT = 0x0004;
 
   public static void ensure() {
-    SoLoader.loadLibrary("fb");
+    SoLoader.loadLibrary("fbjni");
   }
 
   // Code is simplified version of getDetectedVersion()
-  // from cts/tests/tests/graphics/src/android/opengl/cts/OpenGlEsVersionTest.java
+  // from cts/tests/tests/graphics/src/android/opengl/cts/OpenGlEsVersionTest.java 
   static public boolean supportsOpenGL20() {
     EGL10 egl = (EGL10) EGLContext.getEGL();
     EGLDisplay display = egl.eglGetDisplay(EGL10.EGL_DEFAULT_DISPLAY);

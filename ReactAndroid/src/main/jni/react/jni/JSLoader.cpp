@@ -3,7 +3,7 @@
 #include "JSLoader.h"
 
 #include <android/asset_manager_jni.h>
-#include <fb/Environment.h>
+#include <jni/Environment.h>
 #include <fstream>
 #include <sstream>
 #include <streambuf>
@@ -21,7 +21,7 @@ static jclass gApplicationHolderClass;
 static jmethodID gGetApplicationMethod;
 static jmethodID gGetAssetManagerMethod;
 
-std::string loadScriptFromAssets(const std::string& assetName) {
+std::string loadScriptFromAssets(std::string assetName) {
   JNIEnv *env = jni::Environment::current();
   jobject application = env->CallStaticObjectMethod(
     gApplicationHolderClass,
@@ -32,7 +32,7 @@ std::string loadScriptFromAssets(const std::string& assetName) {
 
 std::string loadScriptFromAssets(
     AAssetManager *manager,
-    const std::string& assetName) {
+    std::string assetName) {
   #ifdef WITH_FBSYSTRACE
   FbSystraceSection s(TRACE_TAG_REACT_CXX_BRIDGE, "reactbridge_jni_loadScriptFromAssets",
     "assetName", assetName);
@@ -59,7 +59,7 @@ std::string loadScriptFromAssets(
   return "";
 }
 
-std::string loadScriptFromFile(const std::string& fileName) {
+std::string loadScriptFromFile(std::string fileName) {
   #ifdef WITH_FBSYSTRACE
   FbSystraceSection s(TRACE_TAG_REACT_CXX_BRIDGE, "reactbridge_jni_loadScriptFromFile",
     "fileName", fileName);

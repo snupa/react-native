@@ -117,9 +117,11 @@ afterEvaluate { project ->
     task installArchives(type: Upload) {
         configuration = configurations.archives
         repositories.mavenDeployer {
-            // Deploy to react-native/android, ready to publish to npm
-            repository url: "file://${projectDir}/../android"
+            beforeDeployment {
+                MavenDeployment deployment -> signing.signPom(deployment)
+            }
 
+            repository url: "file://${System.properties['user.home']}/.m2/repository"
             configureReactNativePom pom
         }
     }

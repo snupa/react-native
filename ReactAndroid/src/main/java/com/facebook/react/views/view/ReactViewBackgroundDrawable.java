@@ -11,7 +11,6 @@ package com.facebook.react.views.view;
 
 import javax.annotation.Nullable;
 
-import java.util.Arrays;
 import java.util.Locale;
 
 import android.graphics.Canvas;
@@ -79,10 +78,7 @@ import com.facebook.csslayout.Spacing;
   /* Used for rounded border and rounded background */
   private @Nullable PathEffect mPathEffectForBorderStyle;
   private @Nullable Path mPathForBorderRadius;
-  private @Nullable Path mPathForBorderRadiusOutline;
-  private @Nullable Path mPathForBorder;
   private @Nullable RectF mTempRectForBorderRadius;
-  private @Nullable RectF mTempRectForBorderRadiusOutline;
   private boolean mNeedUpdatePathForBorderRadius = false;
   private float mBorderRadius = CSSConstants.UNDEFINED;
 
@@ -91,18 +87,12 @@ import com.facebook.csslayout.Spacing;
   private int mColor = Color.TRANSPARENT;
   private int mAlpha = 255;
 
-  private @Nullable float[] mBorderCornerRadii;
-
   @Override
   public void draw(Canvas canvas) {
-    updatePathEffect();
-    boolean roundedBorders = mBorderCornerRadii != null ||
-        (!CSSConstants.isUndefined(mBorderRadius) && mBorderRadius > 0);
-
-    if ((mBorderStyle == null || mBorderStyle == BorderStyle.SOLID) && !roundedBorders) {
-      drawRectangularBackgroundWithBorders(canvas);
-    } else {
+    if (!CSSConstants.isUndefined(mBorderRadius) && mBorderRadius > 0) {
       drawRoundedBackgroundWithBorders(canvas);
+    } else {
+      drawRectangularBackgroundWithBorders(canvas);
     }
   }
 
@@ -142,10 +132,11 @@ import com.facebook.csslayout.Spacing;
       super.getOutline(outline);
       return;
     }
-    if((!CSSConstants.isUndefined(mBorderRadius) && mBorderRadius > 0) || mBorderCornerRadii != null) {
-      updatePath();
-
-      outline.setConvexPath(mPathForBorderRadiusOutline);
+    if(!CSSConstants.isUndefined(mBorderRadius) && mBorderRadius > 0) {
+      float extraRadiusFromBorderWidth = (mBorderWidth != null)
+              ? mBorderWidth.get(Spacing.ALL) / 2f
+              : 0;
+      outline.setRoundRect(getBounds(), mBorderRadius + extraRadiusFromBorderWidth);
     } else {
       outline.setRect(getBounds());
     }
@@ -190,22 +181,8 @@ import com.facebook.csslayout.Spacing;
   }
 
   public void setRadius(float radius) {
-    if (!FloatUtil.floatsEqual(mBorderRadius,radius)) {
+    if (mBorderRadius != radius) {
       mBorderRadius = radius;
-      mNeedUpdatePathForBorderRadius = true;
-      invalidateSelf();
-    }
-  }
-
-  public void setRadius(float radius, int position) {
-    if (mBorderCornerRadii == null) {
-      mBorderCornerRadii = new float[4];
-      Arrays.fill(mBorderCornerRadii, CSSConstants.UNDEFINED);
-    }
-
-    if (!FloatUtil.floatsEqual(mBorderCornerRadii[position], radius)) {
-      mBorderCornerRadii[position] = radius;
-      mNeedUpdatePathForBorderRadius = true;
       invalidateSelf();
     }
   }
@@ -235,6 +212,7 @@ import com.facebook.csslayout.Spacing;
       mPaint.setColor(ColorUtil.multiplyColorAlpha(borderColor, mAlpha));
       mPaint.setStyle(Paint.Style.STROKE);
       mPaint.setStrokeWidth(fullBorderWidth);
+      mPaint.setPathEffect(mPathEffectForBorderStyle);
       canvas.drawPath(mPathForBorderRadius, mPaint);
     }
   }
@@ -247,71 +225,22 @@ import com.facebook.csslayout.Spacing;
     if (mPathForBorderRadius == null) {
       mPathForBorderRadius = new Path();
       mTempRectForBorderRadius = new RectF();
-      mPathForBorderRadiusOutline = new Path();
-      mTempRectForBorderRadiusOutline = new RectF();
     }
-
     mPathForBorderRadius.reset();
-    mPathForBorderRadiusOutline.reset();
-
     mTempRectForBorderRadius.set(getBounds());
-    mTempRectForBorderRadiusOutline.set(getBounds());
     float fullBorderWidth = getFullBorderWidth();
     if (fullBorderWidth > 0) {
       mTempRectForBorderRadius.inset(fullBorderWidth * 0.5f, fullBorderWidth * 0.5f);
     }
-
-    float defaultBorderRadius = !CSSConstants.isUndefined(mBorderRadius) ? mBorderRadius : 0;
-    float topLeftRadius = mBorderCornerRadii != null && !CSSConstants.isUndefined(mBorderCornerRadii[0]) ? mBorderCornerRadii[0] : defaultBorderRadius;
-    float topRightRadius = mBorderCornerRadii != null && !CSSConstants.isUndefined(mBorderCornerRadii[1]) ? mBorderCornerRadii[1] : defaultBorderRadius;
-    float bottomRightRadius = mBorderCornerRadii != null && !CSSConstants.isUndefined(mBorderCornerRadii[2]) ? mBorderCornerRadii[2] : defaultBorderRadius;
-    float bottomLeftRadius = mBorderCornerRadii != null && !CSSConstants.isUndefined(mBorderCornerRadii[3]) ? mBorderCornerRadii[3] : defaultBorderRadius;
-
-
     mPathForBorderRadius.addRoundRect(
         mTempRectForBorderRadius,
-        new float[] {
-          topLeftRadius,
-          topLeftRadius,
-          topRightRadius,
-          topRightRadius,
-          bottomRightRadius,
-          bottomRightRadius,
-          bottomLeftRadius,
-          bottomLeftRadius
-        },
+        mBorderRadius,
+        mBorderRadius,
         Path.Direction.CW);
 
-    float extraRadiusForOutline = 0;
-
-    if (mBorderWidth != null) {
-      extraRadiusForOutline = mBorderWidth.get(Spacing.ALL) / 2f;
-    }
-
-    mPathForBorderRadiusOutline.addRoundRect(
-      mTempRectForBorderRadiusOutline,
-      new float[] {
-        topLeftRadius + extraRadiusForOutline,
-        topLeftRadius + extraRadiusForOutline,
-        topRightRadius + extraRadiusForOutline,
-        topRightRadius + extraRadiusForOutline,
-        bottomRightRadius + extraRadiusForOutline,
-        bottomRightRadius + extraRadiusForOutline,
-        bottomLeftRadius + extraRadiusForOutline,
-        bottomLeftRadius + extraRadiusForOutline
-      },
-      Path.Direction.CW);
-  }
-
-  /**
-   * Set type of border
-   */
-  private void updatePathEffect() {
     mPathEffectForBorderStyle = mBorderStyle != null
         ? mBorderStyle.getPathEffect(getFullBorderWidth())
         : null;
-
-    mPaint.setPathEffect(mPathEffectForBorderStyle);
   }
 
   /**
@@ -354,64 +283,30 @@ import com.facebook.csslayout.Spacing;
       int width = getBounds().width();
       int height = getBounds().height();
 
-      // If the path drawn previously is of the same color,
-      // there would be a slight white space between borders
-      // with anti-alias set to true.
-      // Therefore we need to disable anti-alias, and
-      // after drawing is done, we will re-enable it.
-
-      mPaint.setAntiAlias(false);
-
-      if (mPathForBorder == null) {
-        mPathForBorder = new Path();
-      }
-
       if (borderLeft > 0 && colorLeft != Color.TRANSPARENT) {
         mPaint.setColor(colorLeft);
-        mPathForBorder.reset();
-        mPathForBorder.moveTo(0, 0);
-        mPathForBorder.lineTo(borderLeft, borderTop);
-        mPathForBorder.lineTo(borderLeft, height - borderBottom);
-        mPathForBorder.lineTo(0, height);
-        mPathForBorder.lineTo(0, 0);
-        canvas.drawPath(mPathForBorder, mPaint);
+        canvas.drawRect(0, borderTop, borderLeft, height - borderBottom, mPaint);
       }
 
       if (borderTop > 0 && colorTop != Color.TRANSPARENT) {
         mPaint.setColor(colorTop);
-        mPathForBorder.reset();
-        mPathForBorder.moveTo(0, 0);
-        mPathForBorder.lineTo(borderLeft, borderTop);
-        mPathForBorder.lineTo(width - borderRight, borderTop);
-        mPathForBorder.lineTo(width, 0);
-        mPathForBorder.lineTo(0, 0);
-        canvas.drawPath(mPathForBorder, mPaint);
+        canvas.drawRect(0, 0, width, borderTop, mPaint);
       }
 
       if (borderRight > 0 && colorRight != Color.TRANSPARENT) {
         mPaint.setColor(colorRight);
-        mPathForBorder.reset();
-        mPathForBorder.moveTo(width, 0);
-        mPathForBorder.lineTo(width, height);
-        mPathForBorder.lineTo(width - borderRight, height - borderBottom);
-        mPathForBorder.lineTo(width - borderRight, borderTop);
-        mPathForBorder.lineTo(width, 0);
-        canvas.drawPath(mPathForBorder, mPaint);
+        canvas.drawRect(
+            width - borderRight,
+            borderTop,
+            width,
+            height - borderBottom,
+            mPaint);
       }
 
       if (borderBottom > 0 && colorBottom != Color.TRANSPARENT) {
         mPaint.setColor(colorBottom);
-        mPathForBorder.reset();
-        mPathForBorder.moveTo(0, height);
-        mPathForBorder.lineTo(width, height);
-        mPathForBorder.lineTo(width - borderRight, height - borderBottom);
-        mPathForBorder.lineTo(borderLeft, height - borderBottom);
-        mPathForBorder.lineTo(0, height);
-        canvas.drawPath(mPathForBorder, mPaint);
+        canvas.drawRect(0, height - borderBottom, width, height, mPaint);
       }
-
-      // re-enable anti alias
-      mPaint.setAntiAlias(true);
     }
   }
 

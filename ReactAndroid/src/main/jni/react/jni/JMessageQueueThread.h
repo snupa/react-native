@@ -4,41 +4,39 @@
 
 #include <functional>
 
-#include <react/MessageQueueThread.h>
-
-#include <fb/fbjni.h>
+#include <jni/fbjni.h>
 
 using namespace facebook::jni;
 
 namespace facebook {
 namespace react {
 
-class JavaMessageQueueThread : public jni::JavaClass<JavaMessageQueueThread> {
+class MessageQueueThread : public jni::JavaClass<MessageQueueThread> {
 public:
   static constexpr auto kJavaDescriptor = "Lcom/facebook/react/bridge/queue/MessageQueueThread;";
 };
 
-class JMessageQueueThread : public MessageQueueThread {
+class JMessageQueueThread {
 public:
-  JMessageQueueThread(alias_ref<JavaMessageQueueThread::javaobject> jobj);
+  JMessageQueueThread(alias_ref<MessageQueueThread::javaobject> jobj);
 
   /**
    * Enqueues the given function to run on this MessageQueueThread.
    */
-  void runOnQueue(std::function<void()>&& runnable) override;
+  void runOnQueue(std::function<void()>&& runnable);
 
   /**
    * Returns whether the currently executing thread is this MessageQueueThread.
    */
-  bool isOnThread() override;
+  bool isOnThread();
 
   /**
    * Synchronously quits the current MessageQueueThread. Can be called from any thread, but will
    * block if not called on this MessageQueueThread.
    */
-  void quitSynchronous() override;
+  void quitSynchronous();
 
-  JavaMessageQueueThread::javaobject jobj() {
+  MessageQueueThread::javaobject jobj() {
     return m_jobj.get();
   }
 
@@ -47,7 +45,7 @@ public:
    */
   static std::unique_ptr<JMessageQueueThread> currentMessageQueueThread();
 private:
-  global_ref<JavaMessageQueueThread::javaobject> m_jobj;
+  global_ref<MessageQueueThread::javaobject> m_jobj;
 };
 
 class MessageQueueThreadRegistry : public jni::JavaClass<MessageQueueThreadRegistry> {

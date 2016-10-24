@@ -14,36 +14,40 @@ import java.util.Arrays;
 import java.util.List;
 
 import com.facebook.react.bridge.Arguments;
-import com.facebook.react.bridge.ExecutorToken;
-import com.facebook.react.bridge.JavaOnlyArray;
-import com.facebook.react.bridge.JavaOnlyMap;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContext;
+import com.facebook.react.bridge.SimpleArray;
+import com.facebook.react.bridge.SimpleMap;
 import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
-import com.facebook.react.common.network.OkHttpCallUtil;
 import com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter;
 
-import okhttp3.Call;
-import okhttp3.Headers;
-import okhttp3.MediaType;
-import okhttp3.MultipartBody;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.RequestBody;
+import com.squareup.okhttp.Call;
+import com.squareup.okhttp.Headers;
+import com.squareup.okhttp.MediaType;
+import com.squareup.okhttp.MultipartBuilder;
+import com.squareup.okhttp.OkHttpClient;
+import com.squareup.okhttp.Request;
+import com.squareup.okhttp.RequestBody;
 import okio.Buffer;
+
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 import org.powermock.api.mockito.PowerMockito;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
+import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.modules.junit4.rule.PowerMockRule;
+import org.robolectric.RuntimeEnvironment;
 import org.robolectric.RobolectricTestRunner;
+import org.robolectric.annotation.Config;
 
 import static org.fest.assertions.api.Assertions.assertThat;
 import static org.mockito.Mockito.any;
@@ -60,13 +64,9 @@ import static org.mockito.Mockito.when;
     Arguments.class,
     Call.class,
     RequestBodyUtil.class,
-    ProgressRequestBody.class,
-    ProgressRequestListener.class,
-    MultipartBody.class,
-    MultipartBody.Builder.class,
+    MultipartBuilder.class,
     NetworkingModule.class,
-    OkHttpClient.class,
-    OkHttpCallUtil.class})
+    OkHttpClient.class})
 @RunWith(RobolectricTestRunner.class)
 @PowerMockIgnore({"org.mockito.*", "org.robolectric.*", "android.*"})
 public class NetworkingModuleTest {
@@ -88,18 +88,17 @@ public class NetworkingModuleTest {
     NetworkingModule networkingModule = new NetworkingModule(null, "", httpClient);
 
     networkingModule.sendRequest(
-      mock(ExecutorToken.class),
-      "GET",
-      "http://somedomain/foo",
-      0,
-      JavaOnlyArray.of(),
-      null,
-      true,
-      0);
+        "GET",
+        "http://somedomain/foo",
+        0,
+        SimpleArray.of(),
+        null,
+        true,
+        0);
 
     ArgumentCaptor<Request> argumentCaptor = ArgumentCaptor.forClass(Request.class);
     verify(httpClient).newCall(argumentCaptor.capture());
-    assertThat(argumentCaptor.getValue().url().toString()).isEqualTo("http://somedomain/foo");
+    assertThat(argumentCaptor.getValue().urlString()).isEqualTo("http://somedomain/foo");
     // We set the User-Agent header by default
     assertThat(argumentCaptor.getValue().headers().size()).isEqualTo(1);
     assertThat(argumentCaptor.getValue().method()).isEqualTo("GET");
@@ -109,24 +108,23 @@ public class NetworkingModuleTest {
   public void testFailGetWithInvalidHeadersStruct() throws Exception {
     RCTDeviceEventEmitter emitter = mock(RCTDeviceEventEmitter.class);
     ReactApplicationContext context = mock(ReactApplicationContext.class);
-    when(context.getJSModule(any(ExecutorToken.class), any(Class.class))).thenReturn(emitter);
+    when(context.getJSModule(any(Class.class))).thenReturn(emitter);
 
     OkHttpClient httpClient = mock(OkHttpClient.class);
     NetworkingModule networkingModule = new NetworkingModule(context, "", httpClient);
 
-    List<JavaOnlyArray> invalidHeaders = Arrays.asList(JavaOnlyArray.of("foo"));
+    List<SimpleArray> invalidHeaders = Arrays.asList(SimpleArray.of("foo"));
 
     mockEvents();
 
     networkingModule.sendRequest(
-      mock(ExecutorToken.class),
-      "GET",
-      "http://somedoman/foo",
-      0,
-      JavaOnlyArray.from(invalidHeaders),
-      null,
-      true,
-      0);
+        "GET",
+        "http://somedoman/foo",
+        0,
+        SimpleArray.from(invalidHeaders),
+        null,
+        true,
+        0);
 
     verifyErrorEmit(emitter, 0);
   }
@@ -135,25 +133,24 @@ public class NetworkingModuleTest {
   public void testFailPostWithoutContentType() throws Exception {
     RCTDeviceEventEmitter emitter = mock(RCTDeviceEventEmitter.class);
     ReactApplicationContext context = mock(ReactApplicationContext.class);
-    when(context.getJSModule(any(ExecutorToken.class), any(Class.class))).thenReturn(emitter);
+    when(context.getJSModule(any(Class.class))).thenReturn(emitter);
 
     OkHttpClient httpClient = mock(OkHttpClient.class);
     NetworkingModule networkingModule = new NetworkingModule(context, "", httpClient);
 
-    JavaOnlyMap body = new JavaOnlyMap();
+    SimpleMap body = new SimpleMap();
     body.putString("string", "This is request body");
 
     mockEvents();
 
     networkingModule.sendRequest(
-      mock(ExecutorToken.class),
-      "POST",
-      "http://somedomain/bar",
-      0,
-      JavaOnlyArray.of(),
-      body,
-      true,
-      0);
+        "POST",
+        "http://somedomain/bar",
+        0,
+        SimpleArray.of(),
+        body,
+        true,
+        0);
 
     verifyErrorEmit(emitter, 0);
   }
@@ -173,7 +170,7 @@ public class NetworkingModuleTest {
         new Answer<WritableArray>() {
           @Override
           public WritableArray answer(InvocationOnMock invocation) throws Throwable {
-            return new JavaOnlyArray();
+            return new SimpleArray();
           }
         });
 
@@ -181,13 +178,13 @@ public class NetworkingModuleTest {
         new Answer<WritableMap>() {
           @Override
           public WritableMap answer(InvocationOnMock invocation) throws Throwable {
-            return new JavaOnlyMap();
+            return new SimpleMap();
           }
         });
   }
 
   @Test
-  public void testSuccessfulPostRequest() throws Exception {
+  public void testSuccessfullPostRequest() throws Exception {
     OkHttpClient httpClient = mock(OkHttpClient.class);
     when(httpClient.newCall(any(Request.class))).thenAnswer(new Answer<Object>() {
           @Override
@@ -199,22 +196,21 @@ public class NetworkingModuleTest {
 
     NetworkingModule networkingModule = new NetworkingModule(null, "", httpClient);
 
-    JavaOnlyMap body = new JavaOnlyMap();
+    SimpleMap body = new SimpleMap();
     body.putString("string", "This is request body");
 
     networkingModule.sendRequest(
-      mock(ExecutorToken.class),
-      "POST",
-      "http://somedomain/bar",
-      0,
-      JavaOnlyArray.of(JavaOnlyArray.of("Content-Type", "text/plain")),
-      body,
-      true,
-      0);
+        "POST",
+        "http://somedomain/bar",
+        0,
+        SimpleArray.of(SimpleArray.of("Content-Type", "text/plain")),
+        body,
+        true,
+        0);
 
     ArgumentCaptor<Request> argumentCaptor = ArgumentCaptor.forClass(Request.class);
     verify(httpClient).newCall(argumentCaptor.capture());
-    assertThat(argumentCaptor.getValue().url().toString()).isEqualTo("http://somedomain/bar");
+    assertThat(argumentCaptor.getValue().urlString()).isEqualTo("http://somedomain/bar");
     assertThat(argumentCaptor.getValue().headers().size()).isEqualTo(2);
     assertThat(argumentCaptor.getValue().method()).isEqualTo("POST");
     assertThat(argumentCaptor.getValue().body().contentType().type()).isEqualTo("text");
@@ -236,19 +232,18 @@ public class NetworkingModuleTest {
     });
     NetworkingModule networkingModule = new NetworkingModule(null, "", httpClient);
 
-    List<JavaOnlyArray> headers = Arrays.asList(
-        JavaOnlyArray.of("Accept", "text/plain"),
-        JavaOnlyArray.of("User-Agent", "React test agent/1.0"));
+    List<SimpleArray> headers = Arrays.asList(
+        SimpleArray.of("Accept", "text/plain"),
+        SimpleArray.of("User-Agent", "React test agent/1.0"));
 
     networkingModule.sendRequest(
-      mock(ExecutorToken.class),
-      "GET",
-      "http://someurl/baz",
-      0,
-      JavaOnlyArray.from(headers),
-      null,
-      true,
-      0);
+        "GET",
+        "http://someurl/baz",
+        0,
+        SimpleArray.from(headers),
+        null,
+        true,
+        0);
     ArgumentCaptor<Request> argumentCaptor = ArgumentCaptor.forClass(Request.class);
     verify(httpClient).newCall(argumentCaptor.capture());
     Headers requestHeaders = argumentCaptor.getValue().headers();
@@ -264,17 +259,16 @@ public class NetworkingModuleTest {
         .thenReturn(mock(InputStream.class));
     when(RequestBodyUtil.create(any(MediaType.class), any(InputStream.class)))
         .thenReturn(mock(RequestBody.class));
-    when(RequestBodyUtil.createProgressRequest(any(RequestBody.class), any(ProgressRequestListener.class))).thenCallRealMethod();
 
-    JavaOnlyMap body = new JavaOnlyMap();
-    JavaOnlyArray formData = new JavaOnlyArray();
-    JavaOnlyMap bodyPart = new JavaOnlyMap();
+    SimpleMap body = new SimpleMap();
+    SimpleArray formData = new SimpleArray();
+    SimpleMap bodyPart = new SimpleMap();
     bodyPart.putString("string", "value");
     bodyPart.putArray(
         "headers",
-        JavaOnlyArray.from(
+        SimpleArray.from(
             Arrays.asList(
-                JavaOnlyArray.of("content-disposition", "name"))));
+                SimpleArray.of("content-disposition", "name"))));
     formData.pushMap(bodyPart);
     body.putArray("formData", formData);
 
@@ -290,24 +284,23 @@ public class NetworkingModuleTest {
 
     NetworkingModule networkingModule = new NetworkingModule(null, "", httpClient);
     networkingModule.sendRequest(
-      mock(ExecutorToken.class),
-      "POST",
-      "http://someurl/uploadFoo",
-      0,
-      new JavaOnlyArray(),
-      body,
-      true,
-      0);
+        "POST",
+        "http://someurl/uploadFoo",
+        0,
+        new SimpleArray(),
+        body,
+        true,
+        0);
 
     // verify url, method, headers
     ArgumentCaptor<Request> argumentCaptor = ArgumentCaptor.forClass(Request.class);
     verify(httpClient).newCall(argumentCaptor.capture());
-    assertThat(argumentCaptor.getValue().url().toString()).isEqualTo("http://someurl/uploadFoo");
+    assertThat(argumentCaptor.getValue().urlString()).isEqualTo("http://someurl/uploadFoo");
     assertThat(argumentCaptor.getValue().method()).isEqualTo("POST");
     assertThat(argumentCaptor.getValue().body().contentType().type()).
-        isEqualTo(MultipartBody.FORM.type());
+        isEqualTo(MultipartBuilder.FORM.type());
     assertThat(argumentCaptor.getValue().body().contentType().subtype()).
-        isEqualTo(MultipartBody.FORM.subtype());
+        isEqualTo(MultipartBuilder.FORM.subtype());
     Headers requestHeaders = argumentCaptor.getValue().headers();
     assertThat(requestHeaders.size()).isEqualTo(1);
   }
@@ -319,22 +312,21 @@ public class NetworkingModuleTest {
         .thenReturn(mock(InputStream.class));
     when(RequestBodyUtil.create(any(MediaType.class), any(InputStream.class)))
         .thenReturn(mock(RequestBody.class));
-    when(RequestBodyUtil.createProgressRequest(any(RequestBody.class), any(ProgressRequestListener.class))).thenCallRealMethod();
 
-    List<JavaOnlyArray> headers = Arrays.asList(
-            JavaOnlyArray.of("Accept", "text/plain"),
-            JavaOnlyArray.of("User-Agent", "React test agent/1.0"),
-            JavaOnlyArray.of("content-type", "multipart/form-data"));
+    List<SimpleArray> headers = Arrays.asList(
+            SimpleArray.of("Accept", "text/plain"),
+            SimpleArray.of("User-Agent", "React test agent/1.0"),
+            SimpleArray.of("content-type", "multipart/form-data"));
 
-    JavaOnlyMap body = new JavaOnlyMap();
-    JavaOnlyArray formData = new JavaOnlyArray();
-    JavaOnlyMap bodyPart = new JavaOnlyMap();
+    SimpleMap body = new SimpleMap();
+    SimpleArray formData = new SimpleArray();
+    SimpleMap bodyPart = new SimpleMap();
     bodyPart.putString("string", "value");
     bodyPart.putArray(
         "headers",
-        JavaOnlyArray.from(
+        SimpleArray.from(
             Arrays.asList(
-                JavaOnlyArray.of("content-disposition", "name"))));
+                SimpleArray.of("content-disposition", "name"))));
     formData.pushMap(bodyPart);
     body.putArray("formData", formData);
 
@@ -350,24 +342,23 @@ public class NetworkingModuleTest {
 
     NetworkingModule networkingModule = new NetworkingModule(null, "", httpClient);
     networkingModule.sendRequest(
-      mock(ExecutorToken.class),
-      "POST",
-      "http://someurl/uploadFoo",
-      0,
-      JavaOnlyArray.from(headers),
-      body,
-      true,
-      0);
+        "POST",
+        "http://someurl/uploadFoo",
+        0,
+        SimpleArray.from(headers),
+        body,
+        true,
+        0);
 
     // verify url, method, headers
     ArgumentCaptor<Request> argumentCaptor = ArgumentCaptor.forClass(Request.class);
     verify(httpClient).newCall(argumentCaptor.capture());
-    assertThat(argumentCaptor.getValue().url().toString()).isEqualTo("http://someurl/uploadFoo");
+    assertThat(argumentCaptor.getValue().urlString()).isEqualTo("http://someurl/uploadFoo");
     assertThat(argumentCaptor.getValue().method()).isEqualTo("POST");
     assertThat(argumentCaptor.getValue().body().contentType().type()).
-        isEqualTo(MultipartBody.FORM.type());
+        isEqualTo(MultipartBuilder.FORM.type());
     assertThat(argumentCaptor.getValue().body().contentType().subtype()).
-        isEqualTo(MultipartBody.FORM.subtype());
+        isEqualTo(MultipartBuilder.FORM.subtype());
     Headers requestHeaders = argumentCaptor.getValue().headers();
     assertThat(requestHeaders.size()).isEqualTo(3);
     assertThat(requestHeaders.get("Accept")).isEqualTo("text/plain");
@@ -382,12 +373,11 @@ public class NetworkingModuleTest {
     when(RequestBodyUtil.getFileInputStream(any(ReactContext.class), any(String.class)))
         .thenReturn(inputStream);
     when(RequestBodyUtil.create(any(MediaType.class), any(InputStream.class))).thenCallRealMethod();
-    when(RequestBodyUtil.createProgressRequest(any(RequestBody.class), any(ProgressRequestListener.class))).thenCallRealMethod();
     when(inputStream.available()).thenReturn("imageUri".length());
 
-    final MultipartBody.Builder multipartBuilder = mock(MultipartBody.Builder.class);
-    PowerMockito.whenNew(MultipartBody.Builder.class).withNoArguments().thenReturn(multipartBuilder);
-    when(multipartBuilder.setType(any(MediaType.class))).thenAnswer(
+    final MultipartBuilder multipartBuilder = mock(MultipartBuilder.class);
+    PowerMockito.whenNew(MultipartBuilder.class).withNoArguments().thenReturn(multipartBuilder);
+    when(multipartBuilder.type(any(MediaType.class))).thenAnswer(
         new Answer<Object>() {
           @Override
           public Object answer(InvocationOnMock invocation) throws Throwable {
@@ -405,34 +395,34 @@ public class NetworkingModuleTest {
         new Answer<Object>() {
           @Override
           public Object answer(InvocationOnMock invocation) throws Throwable {
-            return mock(MultipartBody.class);
+            return mock(RequestBody.class);
           }
         });
 
-    List<JavaOnlyArray> headers = Arrays.asList(
-            JavaOnlyArray.of("content-type", "multipart/form-data"));
+    List<SimpleArray> headers = Arrays.asList(
+            SimpleArray.of("content-type", "multipart/form-data"));
 
-    JavaOnlyMap body = new JavaOnlyMap();
-    JavaOnlyArray formData = new JavaOnlyArray();
+    SimpleMap body = new SimpleMap();
+    SimpleArray formData = new SimpleArray();
     body.putArray("formData", formData);
 
-    JavaOnlyMap bodyPart = new JavaOnlyMap();
+    SimpleMap bodyPart = new SimpleMap();
     bodyPart.putString("string", "locale");
     bodyPart.putArray(
         "headers",
-        JavaOnlyArray.from(
+        SimpleArray.from(
             Arrays.asList(
-                          JavaOnlyArray.of("content-disposition", "user"))));
+                          SimpleArray.of("content-disposition", "user"))));
     formData.pushMap(bodyPart);
 
-    JavaOnlyMap imageBodyPart = new JavaOnlyMap();
+    SimpleMap imageBodyPart = new SimpleMap();
     imageBodyPart.putString("uri", "imageUri");
     imageBodyPart.putArray(
         "headers",
-        JavaOnlyArray.from(
+        SimpleArray.from(
             Arrays.asList(
-                JavaOnlyArray.of("content-type", "image/jpg"),
-                JavaOnlyArray.of("content-disposition", "filename=photo.jpg"))));
+                SimpleArray.of("content-type", "image/jpg"),
+                SimpleArray.of("content-disposition", "filename=photo.jpg"))));
     formData.pushMap(imageBodyPart);
 
     OkHttpClient httpClient = mock(OkHttpClient.class);
@@ -447,14 +437,13 @@ public class NetworkingModuleTest {
 
     NetworkingModule networkingModule = new NetworkingModule(null, "", httpClient);
     networkingModule.sendRequest(
-      mock(ExecutorToken.class),
-      "POST",
-      "http://someurl/uploadFoo",
-      0,
-      JavaOnlyArray.from(headers),
-      body,
-      true,
-      0);
+        "POST",
+        "http://someurl/uploadFoo",
+        0,
+        SimpleArray.from(headers),
+        body,
+        true,
+        0);
 
     // verify RequestBodyPart for image
     PowerMockito.verifyStatic(times(1));
@@ -464,7 +453,7 @@ public class NetworkingModuleTest {
 
     // verify body
     verify(multipartBuilder).build();
-    verify(multipartBuilder).setType(MultipartBody.FORM);
+    verify(multipartBuilder).type(MultipartBuilder.FORM);
     ArgumentCaptor<Headers> headersArgumentCaptor = ArgumentCaptor.forClass(Headers.class);
     ArgumentCaptor<RequestBody> bodyArgumentCaptor = ArgumentCaptor.forClass(RequestBody.class);
     verify(multipartBuilder, times(2)).
@@ -481,106 +470,5 @@ public class NetworkingModuleTest {
     assertThat(bodyHeaders.get(1).get("content-disposition")).isEqualTo("filename=photo.jpg");
     assertThat(bodyRequestBody.get(1).contentType()).isEqualTo(MediaType.parse("image/jpg"));
     assertThat(bodyRequestBody.get(1).contentLength()).isEqualTo("imageUri".getBytes().length);
-  }
-
-  @Test
-  public void testCancelAllCallsOnCatalystInstanceDestroy() throws Exception {
-    PowerMockito.mockStatic(OkHttpCallUtil.class);
-    OkHttpClient httpClient = mock(OkHttpClient.class);
-    final int requests = 3;
-    final Call[] calls = new Call[requests];
-    for (int idx = 0; idx < requests; idx++) {
-      calls[idx] = mock(Call.class);
-    }
-
-    when(httpClient.cookieJar()).thenReturn(mock(CookieJarContainer.class));
-    when(httpClient.newCall(any(Request.class))).thenAnswer(new Answer<Object>() {
-      @Override
-      public Object answer(InvocationOnMock invocation) throws Throwable {
-        Request request = (Request) invocation.getArguments()[0];
-        return calls[(Integer) request.tag() - 1];
-      }
-    });
-    NetworkingModule networkingModule = new NetworkingModule(null, "", httpClient);
-    networkingModule.initialize();
-
-    for (int idx = 0; idx < requests; idx++) {
-      networkingModule.sendRequest(
-        mock(ExecutorToken.class),
-        "GET",
-        "http://somedomain/foo",
-        idx + 1,
-        JavaOnlyArray.of(),
-        null,
-        true,
-        0);
-    }
-    verify(httpClient, times(3)).newCall(any(Request.class));
-
-    networkingModule.onCatalystInstanceDestroy();
-    PowerMockito.verifyStatic(times(3));
-    ArgumentCaptor<OkHttpClient> clientArguments = ArgumentCaptor.forClass(OkHttpClient.class);
-    ArgumentCaptor<Integer> requestIdArguments = ArgumentCaptor.forClass(Integer.class);
-    OkHttpCallUtil.cancelTag(clientArguments.capture(), requestIdArguments.capture());
-
-    assertThat(requestIdArguments.getAllValues().size()).isEqualTo(requests);
-    for (int idx = 0; idx < requests; idx++) {
-      assertThat(requestIdArguments.getAllValues().contains(idx + 1)).isTrue();
-    }
-  }
-
-  @Test
-  public void testCancelSomeCallsOnCatalystInstanceDestroy() throws Exception {
-    PowerMockito.mockStatic(OkHttpCallUtil.class);
-    OkHttpClient httpClient = mock(OkHttpClient.class);
-    final int requests = 3;
-    final Call[] calls = new Call[requests];
-    for (int idx = 0; idx < requests; idx++) {
-      calls[idx] = mock(Call.class);
-    }
-
-    when(httpClient.cookieJar()).thenReturn(mock(CookieJarContainer.class));
-    when(httpClient.newCall(any(Request.class))).thenAnswer(new Answer<Object>() {
-      @Override
-      public Object answer(InvocationOnMock invocation) throws Throwable {
-        Request request = (Request) invocation.getArguments()[0];
-        return calls[(Integer) request.tag() - 1];
-      }
-    });
-    NetworkingModule networkingModule = new NetworkingModule(null, "", httpClient);
-
-    for (int idx = 0; idx < requests; idx++) {
-      networkingModule.sendRequest(
-        mock(ExecutorToken.class),
-        "GET",
-        "http://somedomain/foo",
-        idx + 1,
-        JavaOnlyArray.of(),
-        null,
-        true,
-        0);
-    }
-    verify(httpClient, times(3)).newCall(any(Request.class));
-
-    networkingModule.abortRequest(mock(ExecutorToken.class), requests);
-    PowerMockito.verifyStatic(times(1));
-    ArgumentCaptor<OkHttpClient> clientArguments = ArgumentCaptor.forClass(OkHttpClient.class);
-    ArgumentCaptor<Integer> requestIdArguments = ArgumentCaptor.forClass(Integer.class);
-    OkHttpCallUtil.cancelTag(clientArguments.capture(), requestIdArguments.capture());
-    assertThat(requestIdArguments.getAllValues().size()).isEqualTo(1);
-    assertThat(requestIdArguments.getAllValues().get(0)).isEqualTo(requests);
-
-    // verifyStatic actually does not clear all calls so far, so we have to check for all of them.
-    // If `cancelTag` would've been called again for the aborted call, we would have had
-    // `requests + 1` calls.
-    networkingModule.onCatalystInstanceDestroy();
-    PowerMockito.verifyStatic(times(requests));
-    clientArguments = ArgumentCaptor.forClass(OkHttpClient.class);
-    requestIdArguments = ArgumentCaptor.forClass(Integer.class);
-    OkHttpCallUtil.cancelTag(clientArguments.capture(), requestIdArguments.capture());
-    assertThat(requestIdArguments.getAllValues().size()).isEqualTo(requests);
-    for (int idx = 0; idx < requests; idx++) {
-      assertThat(requestIdArguments.getAllValues().contains(idx + 1)).isTrue();
-    }
   }
 }

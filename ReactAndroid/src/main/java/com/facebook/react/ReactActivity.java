@@ -27,7 +27,6 @@ public abstract class ReactActivity extends Activity implements DefaultHardwareB
       "Overlay permissions needs to be granted in order for react native apps to run in dev mode";
 
   private @Nullable ReactInstanceManager mReactInstanceManager;
-  private @Nullable ReactRootView mReactRootView;
   private LifecycleState mLifecycleState = LifecycleState.BEFORE_RESUME;
   private boolean mDoRefresh = false;
 
@@ -139,7 +138,7 @@ public abstract class ReactActivity extends Activity implements DefaultHardwareB
     }
 
     mReactInstanceManager = createReactInstanceManager();
-    mReactRootView = createRootView();
+    ReactRootView mReactRootView = createRootView();
     mReactRootView.startReactApplication(mReactInstanceManager, getMainComponentName(), getLaunchOptions());
     setContentView(mReactRootView);
   }
@@ -151,7 +150,7 @@ public abstract class ReactActivity extends Activity implements DefaultHardwareB
     mLifecycleState = LifecycleState.BEFORE_RESUME;
 
     if (mReactInstanceManager != null) {
-      mReactInstanceManager.onHostPause();
+      mReactInstanceManager.onPause();
     }
   }
 
@@ -162,7 +161,7 @@ public abstract class ReactActivity extends Activity implements DefaultHardwareB
     mLifecycleState = LifecycleState.RESUMED;
 
     if (mReactInstanceManager != null) {
-      mReactInstanceManager.onHostResume(this, this);
+      mReactInstanceManager.onResume(this, this);
     }
   }
 
@@ -170,11 +169,8 @@ public abstract class ReactActivity extends Activity implements DefaultHardwareB
   protected void onDestroy() {
     super.onDestroy();
 
-    mReactRootView.unmountReactApplication();
-    mReactRootView = null;
-
     if (mReactInstanceManager != null) {
-      mReactInstanceManager.destroy();
+      mReactInstanceManager.onDestroy();
     }
   }
 
@@ -226,14 +222,5 @@ public abstract class ReactActivity extends Activity implements DefaultHardwareB
   @Override
   public void invokeDefaultOnBackPressed() {
     super.onBackPressed();
-  }
-
-  @Override
-  public void onNewIntent(Intent intent) {
-    if (mReactInstanceManager != null) {
-      mReactInstanceManager.onNewIntent(intent);
-    } else {
-      super.onNewIntent(intent);
-    }
   }
 }

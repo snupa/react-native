@@ -11,13 +11,11 @@ package com.facebook.react.modules.core;
 
 import javax.annotation.Nullable;
 
-import android.net.Uri;
-
 import com.facebook.react.bridge.ReactApplicationContext;
+import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.JavaScriptModule;
-import com.facebook.react.bridge.SupportsWebWorkers;
 import com.facebook.react.bridge.UiThreadUtil;
 
 /**
@@ -25,8 +23,7 @@ import com.facebook.react.bridge.UiThreadUtil;
  */
 public class DeviceEventManagerModule extends ReactContextBaseJavaModule {
 
-  @SupportsWebWorkers
-  public interface RCTDeviceEventEmitter extends JavaScriptModule {
+  public static interface RCTDeviceEventEmitter extends JavaScriptModule {
     void emit(String eventName, @Nullable Object data);
   }
 
@@ -52,15 +49,6 @@ public class DeviceEventManagerModule extends ReactContextBaseJavaModule {
     getReactApplicationContext()
         .getJSModule(RCTDeviceEventEmitter.class)
         .emit("hardwareBackPress", null);
-  }
-
-  /**
-   * Sends an event to the JS instance that a new intent was received.
-   */
-  public void emitNewIntentReceived(Uri uri) {
-    getReactApplicationContext()
-        .getJSModule(RCTDeviceEventEmitter.class)
-        .emit("url", uri.toString());
   }
 
   /**

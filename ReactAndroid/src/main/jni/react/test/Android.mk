@@ -24,3 +24,4 @@ LOCAL_LDFLAGS += $(BUCK_DEP_LDFLAGS)
 include $(BUILD_EXECUTABLE)
 
 $(call import-module,react)
+$(call import-module,google-test)

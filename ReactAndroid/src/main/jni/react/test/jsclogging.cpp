@@ -38,7 +38,7 @@ TEST_F(JSCLoggingTest, LogException) {
   expectedLogMessageSubstring = "I am a banana!";
 
   JSCExecutor e;
-  e.loadApplicationScript(jsText, "");
+  e.executeApplicationScript(jsText, "");
 
   ASSERT_TRUE(hasSeenExpectedLogMessage);
 }

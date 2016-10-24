@@ -4,9 +4,6 @@
 
 #include "NativeArray.h"
 
-#include "NativeCommon.h"
-#include "NativeMap.h"
-
 namespace facebook {
 namespace react {
 
@@ -29,10 +26,8 @@ class ReadableNativeArray : public jni::HybridClass<ReadableNativeArray, NativeA
   // careful.
   const char* getString(jint index);
   jni::local_ref<jhybridobject> getArray(jint index);
-  // This actually returns a ReadableNativeMap::JavaPart, but due to
-  // limitations of fbjni, we can't specify that here.
-  jni::local_ref<NativeMap::jhybridobject> getMap(jint index);
-  jni::local_ref<ReadableType> getType(jint index);
+  jobject getMap(jint index);
+  jobject getType(jint index);
 
   static void registerNatives();
 };

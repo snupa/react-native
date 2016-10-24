@@ -12,6 +12,7 @@ package com.facebook.react.views.viewpager;
 import java.util.ArrayList;
 import java.util.List;
 
+import android.os.SystemClock;
 import android.support.v4.view.PagerAdapter;
 import android.support.v4.view.ViewPager;
 import android.view.MotionEvent;
@@ -19,7 +20,6 @@ import android.view.View;
 import android.view.ViewGroup;
 
 import com.facebook.react.bridge.ReactContext;
-import com.facebook.react.common.SystemClock;
 import com.facebook.react.uimanager.UIManagerModule;
 import com.facebook.react.uimanager.events.EventDispatcher;
 import com.facebook.react.uimanager.events.NativeGestureUtil;
@@ -91,14 +91,14 @@ import com.facebook.react.uimanager.events.NativeGestureUtil;
     @Override
     public void onPageScrolled(int position, float positionOffset, int positionOffsetPixels) {
       mEventDispatcher.dispatchEvent(
-          new PageScrollEvent(getId(), SystemClock.nanoTime(), position, positionOffset));
+          new PageScrollEvent(getId(), SystemClock.uptimeMillis(), position, positionOffset));
     }
 
     @Override
     public void onPageSelected(int position) {
       if (!mIsCurrentItemFromJs) {
         mEventDispatcher.dispatchEvent(
-            new PageSelectedEvent(getId(), SystemClock.nanoTime(), position));
+            new PageSelectedEvent(getId(), SystemClock.uptimeMillis(), position));
       }
     }
 
@@ -119,13 +119,12 @@ import com.facebook.react.uimanager.events.NativeGestureUtil;
           throw new IllegalStateException("Unsupported pageScrollState");
       }
       mEventDispatcher.dispatchEvent(
-        new PageScrollStateChangedEvent(getId(), SystemClock.nanoTime(), pageScrollState));
+        new PageScrollStateChangedEvent(getId(), SystemClock.uptimeMillis(), pageScrollState));
     }
   }
 
   private final EventDispatcher mEventDispatcher;
   private boolean mIsCurrentItemFromJs;
-  private boolean mScrollEnabled = true;
 
   public ReactViewPager(ReactContext reactContext) {
     super(reactContext);
@@ -142,10 +141,6 @@ import com.facebook.react.uimanager.events.NativeGestureUtil;
 
   @Override
   public boolean onInterceptTouchEvent(MotionEvent ev) {
-    if (!mScrollEnabled) {
-      return false;
-    }
-
     if (super.onInterceptTouchEvent(ev)) {
       NativeGestureUtil.notifyNativeGestureStarted(this, ev);
       return true;
@@ -153,23 +148,10 @@ import com.facebook.react.uimanager.events.NativeGestureUtil;
     return false;
   }
 
-  @Override
-  public boolean onTouchEvent(MotionEvent ev) {
-    if (!mScrollEnabled) {
-      return false;
-    }
-
-    return super.onTouchEvent(ev);
-  }
-
   public void setCurrentItemFromJs(int item, boolean animated) {
     mIsCurrentItemFromJs = true;
     setCurrentItem(item, animated);
     mIsCurrentItemFromJs = false;
-  }
-
-  public void setScrollEnabled(boolean scrollEnabled) {
-    mScrollEnabled = scrollEnabled;
   }
 
   /*package*/ void addViewToAdapter(View child, int index) {

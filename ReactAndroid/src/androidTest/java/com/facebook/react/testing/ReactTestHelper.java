@@ -10,11 +10,8 @@ package com.facebook.react.testing;
 
 import javax.annotation.Nullable;
 
-import java.util.concurrent.Callable;
-
 import android.app.Instrumentation;
 import android.content.Context;
-import android.support.test.InstrumentationRegistry;
 import android.view.View;
 import android.view.ViewGroup;
 
@@ -23,13 +20,13 @@ import com.facebook.react.bridge.CatalystInstance;
 import com.facebook.react.bridge.CatalystInstanceImpl;
 import com.facebook.react.bridge.JSBundleLoader;
 import com.facebook.react.bridge.JSCJavaScriptExecutor;
-import com.facebook.react.bridge.JavaScriptModuleRegistry;
+import com.facebook.react.bridge.JavaScriptModulesConfig;
 import com.facebook.react.bridge.NativeModule;
 import com.facebook.react.bridge.NativeModuleCallExceptionHandler;
 import com.facebook.react.bridge.NativeModuleRegistry;
-import com.facebook.react.bridge.WritableNativeMap;
 import com.facebook.react.bridge.queue.ReactQueueConfigurationSpec;
 
+import android.support.test.InstrumentationRegistry;
 import com.android.internal.util.Predicate;
 
 public class ReactTestHelper {
@@ -38,8 +35,8 @@ public class ReactTestHelper {
       private @Nullable Context mContext;
       private final NativeModuleRegistry.Builder mNativeModuleRegistryBuilder =
         new NativeModuleRegistry.Builder();
-      private final JavaScriptModuleRegistry.Builder mJSModuleRegistryBuilder =
-        new JavaScriptModuleRegistry.Builder();
+      private final JavaScriptModulesConfig.Builder mJSModulesConfigBuilder =
+        new JavaScriptModulesConfig.Builder();
 
       @Override
       public ReactInstanceEasyBuilder setContext(Context context) {
@@ -55,7 +52,7 @@ public class ReactTestHelper {
 
       @Override
       public ReactInstanceEasyBuilder addJSModule(Class moduleInterfaceClass) {
-        mJSModuleRegistryBuilder.add(moduleInterfaceClass);
+        mJSModulesConfigBuilder.add(moduleInterfaceClass);
         return this;
       }
 
@@ -63,9 +60,9 @@ public class ReactTestHelper {
       public CatalystInstance build() {
         return new CatalystInstanceImpl.Builder()
           .setReactQueueConfigurationSpec(ReactQueueConfigurationSpec.createDefault())
-          .setJSExecutor(new JSCJavaScriptExecutor(new WritableNativeMap()))
+          .setJSExecutor(new JSCJavaScriptExecutor())
           .setRegistry(mNativeModuleRegistryBuilder.build())
-          .setJSModuleRegistry(mJSModuleRegistryBuilder.build())
+          .setJSModulesConfig(mJSModulesConfigBuilder.build())
           .setJSBundleLoader(JSBundleLoader.createFileLoader(
                                mContext,
                                "assets://AndroidTestBundle.js"))
@@ -126,21 +123,9 @@ public class ReactTestHelper {
 
         @Override
         public CatalystInstance build() {
-          final CatalystInstance instance = builder.build();
-          try {
-            instance.getReactQueueConfiguration().getJSQueueThread().callOnQueue(
-              new Callable<Void>() {
-                @Override
-                public Void call() throws Exception {
-                  testCase.initializeWithInstance(instance);
-                  instance.runJSBundle();
-                  return null;
-                }
-              }).get();
-
-          } catch (Exception e) {
-            throw new RuntimeException(e);
-          }
+          CatalystInstance instance = builder.build();
+          testCase.initializeWithInstance(instance);
+          instance.runJSBundle();
           testCase.waitForBridgeAndUIIdle();
           return instance;
         }

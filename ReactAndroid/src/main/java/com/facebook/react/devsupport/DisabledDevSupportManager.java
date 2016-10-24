@@ -47,11 +47,6 @@ public class DisabledDevSupportManager implements DevSupportManager {
   }
 
   @Override
-  public void hideRedboxDialog() {
-
-  }
-
-  @Override
   public void showDevOptionsDialog() {
 
   }

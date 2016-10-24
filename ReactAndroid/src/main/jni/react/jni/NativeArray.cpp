@@ -2,12 +2,8 @@
 
 #include "NativeArray.h"
 
-#include <fb/fbjni.h>
+#include <jni/fbjni.h>
 #include <folly/json.h>
-
-#include "NativeCommon.h"
-
-using namespace facebook::jni;
 
 namespace facebook {
 namespace react {
@@ -15,14 +11,17 @@ namespace react {
 NativeArray::NativeArray(folly::dynamic a)
     : array(std::move(a)) {
   if (!array.isArray()) {
-    throwNewJavaException(exceptions::gUnexpectedNativeTypeExceptionClass,
+    jni::throwNewJavaException("com/facebook/react/bridge/UnexpectedNativeTypeException",
                                "expected Array, got a %s", array.typeName());
   }
 }
 
-local_ref<jstring> NativeArray::toString() {
-  exceptions::throwIfObjectAlreadyConsumed(this, "Array already consumed");
-  return make_jstring(folly::toJson(array).c_str());
+jstring NativeArray::toString() {
+  if (isConsumed) {
+    jni::throwNewJavaException("com/facebook/react/bridge/ObjectAlreadyConsumedException",
+                               "Array already consumed");
+  }
+  return jni::make_jstring(folly::toJson(array).c_str()).release();
 }
 
 void NativeArray::registerNatives() {

@@ -13,15 +13,17 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import android.util.DisplayMetrics;
 import android.view.Choreographer;
 import android.widget.EditText;
 
 import com.facebook.react.ReactRootView;
 import com.facebook.react.bridge.Arguments;
-import com.facebook.react.bridge.JavaOnlyArray;
-import com.facebook.react.bridge.JavaOnlyMap;
-import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactTestHelper;
+import com.facebook.react.bridge.ReactApplicationContext;
+import com.facebook.react.bridge.SimpleArray;
+import com.facebook.react.bridge.SimpleMap;
+import com.facebook.react.uimanager.DisplayMetricsHolder;
 import com.facebook.react.uimanager.ReactChoreographer;
 import com.facebook.react.uimanager.UIImplementation;
 import com.facebook.react.uimanager.UIManagerModule;
@@ -29,8 +31,8 @@ import com.facebook.react.uimanager.ViewManager;
 import com.facebook.react.uimanager.ViewProps;
 
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
+import org.junit.Rule;
 import org.junit.runner.RunWith;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
@@ -38,6 +40,7 @@ import org.powermock.api.mockito.PowerMockito;
 import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.rule.PowerMockRule;
+import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 
@@ -67,7 +70,7 @@ public class TextInputTest {
     PowerMockito.when(Arguments.createMap()).thenAnswer(new Answer<Object>() {
       @Override
       public Object answer(InvocationOnMock invocation) throws Throwable {
-        return new JavaOnlyMap();
+        return new SimpleMap();
       }
     });
     PowerMockito.when(ReactChoreographer.getInstance()).thenReturn(choreographerMock);
@@ -90,7 +93,6 @@ public class TextInputTest {
     UIManagerModule uiManager = getUIManagerModule();
 
     ReactRootView rootView = new ReactRootView(RuntimeEnvironment.application);
-    rootView.setLayoutParams(new ReactRootView.LayoutParams(100, 100));
     int rootTag = uiManager.addMeasuredRootView(rootView);
     int textInputTag = rootTag + 1;
     final String hintStr = "placeholder text";
@@ -99,15 +101,15 @@ public class TextInputTest {
         textInputTag,
         ReactTextInputManager.REACT_CLASS,
         rootTag,
-        JavaOnlyMap.of(
+        SimpleMap.of(
             ViewProps.FONT_SIZE, 13.37, ViewProps.HEIGHT, 20.0, "placeholder", hintStr));
 
     uiManager.manageChildren(
         rootTag,
         null,
         null,
-        JavaOnlyArray.of(textInputTag),
-        JavaOnlyArray.of(0),
+        SimpleArray.of(textInputTag),
+        SimpleArray.of(0),
         null);
 
     uiManager.onBatchComplete();
@@ -124,7 +126,6 @@ public class TextInputTest {
     UIManagerModule uiManager = getUIManagerModule();
 
     ReactRootView rootView = new ReactRootView(RuntimeEnvironment.application);
-    rootView.setLayoutParams(new ReactRootView.LayoutParams(100, 100));
     int rootTag = uiManager.addMeasuredRootView(rootView);
     int textInputTag = rootTag + 1;
     final String hintStr = "placeholder text";
@@ -133,15 +134,15 @@ public class TextInputTest {
         textInputTag,
         ReactTextInputManager.REACT_CLASS,
         rootTag,
-        JavaOnlyMap.of(
+        SimpleMap.of(
             ViewProps.FONT_SIZE, 13.37, ViewProps.HEIGHT, 20.0, "placeholder", hintStr));
 
     uiManager.manageChildren(
         rootTag,
         null,
         null,
-        JavaOnlyArray.of(textInputTag),
-        JavaOnlyArray.of(0),
+        SimpleArray.of(textInputTag),
+        SimpleArray.of(0),
         null);
     uiManager.onBatchComplete();
     executePendingChoreographerCallbacks();
@@ -155,7 +156,7 @@ public class TextInputTest {
     uiManager.updateView(
         textInputTag,
         ReactTextInputManager.REACT_CLASS,
-        JavaOnlyMap.of(
+        SimpleMap.of(
             ViewProps.FONT_SIZE, 26.74, ViewProps.HEIGHT, 40.0, "placeholder", hintStr2));
 
     uiManager.onBatchComplete();
@@ -182,6 +183,9 @@ public class TextInputTest {
         new ViewManager[] {
             new ReactTextInputManager(),
         });
+    DisplayMetrics displayMetrics = reactContext.getResources().getDisplayMetrics();
+    DisplayMetricsHolder.setWindowDisplayMetrics(displayMetrics);
+    DisplayMetricsHolder.setScreenDisplayMetrics(displayMetrics);
     UIManagerModule uiManagerModule = new UIManagerModule(
         reactContext,
         viewManagers,

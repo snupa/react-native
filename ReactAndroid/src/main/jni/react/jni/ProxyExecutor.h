@@ -3,10 +3,9 @@
 #pragma once
 
 #include <react/Executor.h>
-#include <fb/fbjni.h>
+#include <jni/fbjni.h>
 #include <jni.h>
 #include <jni/GlobalReference.h>
-#include "OnLoad.h"
 
 namespace facebook {
 namespace react {
@@ -15,11 +14,11 @@ namespace react {
  * This executor factory can only create a single executor instance because it moves
  * executorInstance global reference to the executor instance it creates.
  */
-class ProxyExecutorOneTimeFactory : public CountableJSExecutorFactory {
+class ProxyExecutorOneTimeFactory : public JSExecutorFactory {
 public:
   ProxyExecutorOneTimeFactory(jni::global_ref<jobject>&& executorInstance) :
     m_executor(std::move(executorInstance)) {}
-  virtual std::unique_ptr<JSExecutor> createJSExecutor(Bridge *bridge) override;
+  virtual std::unique_ptr<JSExecutor> createJSExecutor(FlushImmediateCallback ignoredCallback) override;
 
 private:
   jni::global_ref<jobject> m_executor;
@@ -27,22 +26,22 @@ private:
 
 class ProxyExecutor : public JSExecutor {
 public:
-  ProxyExecutor(jni::global_ref<jobject>&& executorInstance, Bridge *bridge) :
-    m_executor(std::move(executorInstance)),
-    m_bridge(bridge) {}
+  ProxyExecutor(jni::global_ref<jobject>&& executorInstance) :
+    m_executor(std::move(executorInstance)) {}
   virtual ~ProxyExecutor() override;
-  virtual void loadApplicationScript(
+  virtual void executeApplicationScript(
     const std::string& script,
     const std::string& sourceURL) override;
   virtual void loadApplicationUnbundle(
-    std::unique_ptr<JSModulesUnbundle> bundle,
+    JSModulesUnbundle&& bundle,
     const std::string& startupCode,
     const std::string& sourceURL) override;
-  virtual void callFunction(
-    const std::string& moduleId,
-    const std::string& methodId,
+  virtual std::string flush() override;
+  virtual std::string callFunction(
+    const double moduleId,
+    const double methodId,
     const folly::dynamic& arguments) override;
-  virtual void invokeCallback(
+  virtual std::string invokeCallback(
     const double callbackId,
     const folly::dynamic& arguments) override;
   virtual void setGlobalVariable(
@@ -51,7 +50,6 @@ public:
 
 private:
   jni::global_ref<jobject> m_executor;
-  Bridge *m_bridge;
 };
 
 } }

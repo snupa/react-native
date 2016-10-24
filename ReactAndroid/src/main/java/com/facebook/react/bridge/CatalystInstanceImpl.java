@@ -27,9 +27,11 @@ import com.facebook.react.bridge.queue.ReactQueueConfigurationSpec;
 import com.facebook.react.bridge.queue.QueueThreadExceptionHandler;
 import com.facebook.react.common.ReactConstants;
 import com.facebook.react.common.annotations.VisibleForTesting;
-import com.facebook.react.common.futures.SimpleSettableFuture;
 import com.facebook.systrace.Systrace;
 import com.facebook.systrace.TraceListener;
+
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonGenerator;
 
 /**
  * This provides an implementation of the public CatalystInstance instance.  It is public because
@@ -46,19 +48,11 @@ public class CatalystInstanceImpl implements CatalystInstance {
   private final AtomicInteger mPendingJSCalls = new AtomicInteger(0);
   private final String mJsPendingCallsTitleForTrace =
       "pending_js_calls_instance" + sNextInstanceIdForTrace.getAndIncrement();
-  private volatile boolean mIsBeingDestroyed = false;
   private volatile boolean mDestroyed = false;
   private final TraceListener mTraceListener;
   private final JavaScriptModuleRegistry mJSModuleRegistry;
   private final JSBundleLoader mJSBundleLoader;
-  private @Nullable ExecutorToken mMainExecutorToken;
-
-  // These locks prevent additional calls from going JS<->Java after the bridge has been torn down.
-  // There are separate ones for each direction because a JS to Java call can trigger a Java to JS
-  // call: this would cause a deadlock with a traditional mutex (maybe we should be using a reader-
-  // writer lock but then we'd have to worry about starving the destroy call).
-  private final Object mJSToJavaCallsTeardownLock = new Object();
-  private final Object mJavaToJSCallsTeardownLock = new Object();
+  private volatile int mTraceID = 0;
 
   // Access from native modules thread
   private final NativeModuleRegistry mJavaRegistry;
@@ -73,16 +67,15 @@ public class CatalystInstanceImpl implements CatalystInstance {
       final ReactQueueConfigurationSpec ReactQueueConfigurationSpec,
       final JavaScriptExecutor jsExecutor,
       final NativeModuleRegistry registry,
-      final JavaScriptModuleRegistry jsModuleRegistry,
+      final JavaScriptModulesConfig jsModulesConfig,
       final JSBundleLoader jsBundleLoader,
       NativeModuleCallExceptionHandler nativeModuleCallExceptionHandler) {
-    FLog.d(ReactConstants.TAG, "Initializing React Bridge.");
     mReactQueueConfiguration = ReactQueueConfigurationImpl.create(
         ReactQueueConfigurationSpec,
         new NativeExceptionHandler());
     mBridgeIdleListeners = new CopyOnWriteArrayList<>();
     mJavaRegistry = registry;
-    mJSModuleRegistry = jsModuleRegistry;
+    mJSModuleRegistry = new JavaScriptModuleRegistry(CatalystInstanceImpl.this, jsModulesConfig);
     mJSBundleLoader = jsBundleLoader;
     mNativeModuleCallExceptionHandler = nativeModuleCallExceptionHandler;
     mTraceListener = new JSProfilerTraceListener();
@@ -94,7 +87,7 @@ public class CatalystInstanceImpl implements CatalystInstance {
             public ReactBridge call() throws Exception {
               Systrace.beginSection(Systrace.TRACE_TAG_REACT_JAVA_BRIDGE, "initializeBridge");
               try {
-                return initializeBridge(jsExecutor);
+                return initializeBridge(jsExecutor, jsModulesConfig);
               } finally {
                 Systrace.endSection(Systrace.TRACE_TAG_REACT_JAVA_BRIDGE);
               }
@@ -105,7 +98,9 @@ public class CatalystInstanceImpl implements CatalystInstance {
     }
   }
 
-  private ReactBridge initializeBridge(JavaScriptExecutor jsExecutor) {
+  private ReactBridge initializeBridge(
+      JavaScriptExecutor jsExecutor,
+      JavaScriptModulesConfig jsModulesConfig) {
     mReactQueueConfiguration.getJSQueueThread().assertIsOnThread();
     Assertions.assertCondition(mBridge == null, "initializeBridge should be called once");
 
@@ -116,7 +111,6 @@ public class CatalystInstanceImpl implements CatalystInstance {
           jsExecutor,
           new NativeModulesReactCallback(),
           mReactQueueConfiguration.getNativeModulesQueueThread());
-      mMainExecutorToken = bridge.getMainExecutorToken();
     } finally {
       Systrace.endSection(Systrace.TRACE_TAG_REACT_JAVA_BRIDGE);
     }
@@ -125,7 +119,7 @@ public class CatalystInstanceImpl implements CatalystInstance {
     try {
       bridge.setGlobalVariable(
           "__fbBatchedBridgeConfig",
-          buildModulesConfigJSONProperty(mJavaRegistry));
+          buildModulesConfigJSONProperty(mJavaRegistry, jsModulesConfig));
       bridge.setGlobalVariable(
           "__RCTProfileIsProfiling",
           Systrace.isTracing(Systrace.TRACE_TAG_REACT_APPS) ? "true" : "false");
@@ -133,76 +127,124 @@ public class CatalystInstanceImpl implements CatalystInstance {
       Systrace.endSection(Systrace.TRACE_TAG_REACT_JAVA_BRIDGE);
     }
 
-    mJavaRegistry.notifyReactBridgeInitialized(bridge);
     return bridge;
   }
 
   @Override
   public void runJSBundle() {
-    mReactQueueConfiguration.getJSQueueThread().assertIsOnThread();
-    Assertions.assertCondition(!mJSBundleHasLoaded, "JS bundle was already loaded!");
-
-    incrementPendingJSCalls();
-
-    Systrace.beginSection(Systrace.TRACE_TAG_REACT_JAVA_BRIDGE, "loadJSScript");
     try {
-      mJSBundleLoader.loadScript(mBridge);
+      mJSBundleHasLoaded = mReactQueueConfiguration.getJSQueueThread().callOnQueue(
+          new Callable<Boolean>() {
+            @Override
+            public Boolean call() throws Exception {
+              Assertions.assertCondition(!mJSBundleHasLoaded, "JS bundle was already loaded!");
 
-      // This is registered after JS starts since it makes a JS call
-      Systrace.registerListener(mTraceListener);
-    } catch (JSExecutionException e) {
-      mNativeModuleCallExceptionHandler.handleException(e);
-    } finally {
-      Systrace.endSection(Systrace.TRACE_TAG_REACT_JAVA_BRIDGE);
+              incrementPendingJSCalls();
+
+              Systrace.beginSection(Systrace.TRACE_TAG_REACT_JAVA_BRIDGE, "loadJSScript");
+              try {
+                mJSBundleLoader.loadScript(mBridge);
+
+                // This is registered after JS starts since it makes a JS call
+                Systrace.registerListener(mTraceListener);
+              } catch (JSExecutionException e) {
+                mNativeModuleCallExceptionHandler.handleException(e);
+              } finally {
+                Systrace.endSection(Systrace.TRACE_TAG_REACT_JAVA_BRIDGE);
+              }
+
+              return true;
+            }
+          }).get();
+    } catch (Exception t) {
+      throw new RuntimeException(t);
     }
-
-    mJSBundleHasLoaded = true;
   }
 
-  @Override
-  public void callFunction(
-      ExecutorToken executorToken,
-      String module,
-      String method,
-      NativeArray arguments,
-      String tracingName) {
-    if (mIsBeingDestroyed) {
+  /* package */ void callFunction(
+      final int moduleId,
+      final int methodId,
+      final NativeArray arguments,
+      final String tracingName) {
+    if (mDestroyed) {
       FLog.w(ReactConstants.TAG, "Calling JS function after bridge has been destroyed.");
       return;
     }
-    synchronized (mJavaToJSCallsTeardownLock) {
-      if (mDestroyed) {
-        FLog.w(ReactConstants.TAG, "Calling JS function after bridge has been destroyed.");
-        return;
-      }
 
-      incrementPendingJSCalls();
+    incrementPendingJSCalls();
 
-      Assertions.assertNotNull(mBridge).callFunction(executorToken,
-        module,
-        method, arguments, tracingName);
-    }
+    final int traceID = mTraceID++;
+    Systrace.startAsyncFlow(
+        Systrace.TRACE_TAG_REACT_JAVA_BRIDGE,
+        tracingName,
+        traceID);
+
+    mReactQueueConfiguration.getJSQueueThread().runOnQueue(
+        new Runnable() {
+          @Override
+          public void run() {
+            mReactQueueConfiguration.getJSQueueThread().assertIsOnThread();
+
+            Systrace.endAsyncFlow(
+                Systrace.TRACE_TAG_REACT_JAVA_BRIDGE,
+                tracingName,
+                traceID);
+
+            if (mDestroyed) {
+              return;
+            }
+
+            Systrace.beginSection(Systrace.TRACE_TAG_REACT_JAVA_BRIDGE, tracingName);
+            try {
+              Assertions.assertNotNull(mBridge).callFunction(moduleId, methodId, arguments);
+            } finally {
+              Systrace.endSection(Systrace.TRACE_TAG_REACT_JAVA_BRIDGE);
+            }
+          }
+        });
   }
 
   // This is called from java code, so it won't be stripped anyway, but proguard will rename it,
   // which this prevents.
   @DoNotStrip
   @Override
-  public void invokeCallback(ExecutorToken executorToken, int callbackID, NativeArray arguments) {
-    if (mIsBeingDestroyed) {
+  public void invokeCallback(final int callbackID, final NativeArray arguments) {
+    if (mDestroyed) {
       FLog.w(ReactConstants.TAG, "Invoking JS callback after bridge has been destroyed.");
       return;
     }
-    synchronized (mJavaToJSCallsTeardownLock) {
-      if (mDestroyed) {
-        FLog.w(ReactConstants.TAG, "Invoking JS callback after bridge has been destroyed.");
-        return;
-      }
 
-      incrementPendingJSCalls();
+    incrementPendingJSCalls();
 
-      Assertions.assertNotNull(mBridge).invokeCallback(executorToken, callbackID, arguments);
-    }
+    final int traceID = mTraceID++;
+    Systrace.startAsyncFlow(
+        Systrace.TRACE_TAG_REACT_JAVA_BRIDGE,
+        "<callback>",
+        traceID);
+
+    mReactQueueConfiguration.getJSQueueThread().runOnQueue(
+        new Runnable() {
+          @Override
+          public void run() {
+            mReactQueueConfiguration.getJSQueueThread().assertIsOnThread();
+
+            Systrace.endAsyncFlow(
+                Systrace.TRACE_TAG_REACT_JAVA_BRIDGE,
+                "<callback>",
+                traceID);
+
+            if (mDestroyed) {
+              return;
+            }
+
+            Systrace.beginSection(Systrace.TRACE_TAG_REACT_JAVA_BRIDGE, "<callback>");
+            try {
+              Assertions.assertNotNull(mBridge).invokeCallback(callbackID, arguments);
+            } finally {
+              Systrace.endSection(Systrace.TRACE_TAG_REACT_JAVA_BRIDGE);
+            }
+          }
+        });
   }
 
   /**
@@ -214,47 +256,26 @@ public class CatalystInstanceImpl implements CatalystInstance {
   public void destroy() {
     UiThreadUtil.assertOnUiThread();
 
-    // This ordering is important. A JS to Java call that triggers a Java to JS call will also
-    // acquire these locks in the same order
-    mIsBeingDestroyed = true;
-    synchronized (mJSToJavaCallsTeardownLock) {
-      synchronized (mJavaToJSCallsTeardownLock) {
-        if (mDestroyed) {
-          return;
-        }
-
-        // TODO: tell all APIs to shut down
-        mDestroyed = true;
-        mJavaRegistry.notifyCatalystInstanceDestroy();
-
-        Systrace.unregisterListener(mTraceListener);
-
-        synchronouslyDisposeBridgeOnJSThread();
-      }
+    if (mDestroyed) {
+      return;
     }
 
+    // TODO: tell all APIs to shut down
+    mDestroyed = true;
+    mJavaRegistry.notifyCatalystInstanceDestroy();
     mReactQueueConfiguration.destroy();
-
     boolean wasIdle = (mPendingJSCalls.getAndSet(0) == 0);
     if (!wasIdle && !mBridgeIdleListeners.isEmpty()) {
       for (NotThreadSafeBridgeIdleDebugListener listener : mBridgeIdleListeners) {
         listener.onTransitionToBridgeIdle();
       }
     }
-  }
 
-  private void synchronouslyDisposeBridgeOnJSThread() {
-    final SimpleSettableFuture<Void> bridgeDisposeFuture = new SimpleSettableFuture<>();
-    mReactQueueConfiguration.getJSQueueThread().runOnQueue(
-        new Runnable() {
-          @Override
-          public void run() {
-            mBridge.destroy();
-            mBridge.dispose();
-            bridgeDisposeFuture.set(null);
-          }
-        });
-    bridgeDisposeFuture.getOrThrow();
+    Systrace.unregisterListener(mTraceListener);
+
+    // We can access the Bridge from any thread now because we know either we are on the JS thread
+    // or the JS thread has finished via ReactQueueConfiguration#destroy()
+    mBridge.dispose();
   }
 
   @Override
@@ -283,18 +304,7 @@ public class CatalystInstanceImpl implements CatalystInstance {
 
   @Override
   public <T extends JavaScriptModule> T getJSModule(Class<T> jsInterface) {
-    return getJSModule(Assertions.assertNotNull(mMainExecutorToken), jsInterface);
-  }
-
-  @Override
-  public <T extends JavaScriptModule> T getJSModule(ExecutorToken executorToken, Class<T> jsInterface) {
-    return Assertions.assertNotNull(mJSModuleRegistry)
-      .getJavaScriptModule(this, executorToken, jsInterface);
-  }
-
-  @Override
-  public <T extends NativeModule> boolean hasNativeModule(Class<T> nativeModuleInterface) {
-    return mJavaRegistry.hasModule(nativeModuleInterface);
+    return Assertions.assertNotNull(mJSModuleRegistry).getJavaScriptModule(jsInterface);
   }
 
   @Override
@@ -308,14 +318,8 @@ public class CatalystInstanceImpl implements CatalystInstance {
   }
 
   @Override
-  public void handleMemoryPressure(final MemoryPressure level) {
-    mReactQueueConfiguration.getJSQueueThread().runOnQueue(
-      new Runnable() {
-        @Override
-        public void run() {
-          Assertions.assertNotNull(mBridge).handleMemoryPressure(level);
-        }
-      });
+  public void handleMemoryPressure(MemoryPressure level) {
+    Assertions.assertNotNull(mBridge).handleMemoryPressure(level);
   }
 
   /**
@@ -359,23 +363,24 @@ public class CatalystInstanceImpl implements CatalystInstance {
     mBridge.setGlobalVariable(propName, jsonValue);
   }
 
-  private String buildModulesConfigJSONProperty(NativeModuleRegistry nativeModuleRegistry) {
-    StringWriter stringWriter = new StringWriter();
-    JsonWriter writer = new JsonWriter(stringWriter);
+  private String buildModulesConfigJSONProperty(
+      NativeModuleRegistry nativeModuleRegistry,
+      JavaScriptModulesConfig jsModulesConfig) {
+    JsonFactory jsonFactory = new JsonFactory();
+    StringWriter writer = new StringWriter();
     try {
-      writer.beginObject();
-      writer.name("remoteModuleConfig");
-      nativeModuleRegistry.writeModuleDescriptions(writer);
-      writer.endObject();
-      return stringWriter.toString();
+      JsonGenerator jg = jsonFactory.createGenerator(writer);
+      jg.writeStartObject();
+      jg.writeFieldName("remoteModuleConfig");
+      nativeModuleRegistry.writeModuleDescriptions(jg);
+      jg.writeFieldName("localModulesConfig");
+      jsModulesConfig.writeModuleDescriptions(jg);
+      jg.writeEndObject();
+      jg.close();
     } catch (IOException ioe) {
       throw new RuntimeException("Unable to serialize JavaScript module declaration", ioe);
-    } finally {
-      try {
-        writer.close();
-      } catch (IOException ignored) {
-      }
     }
+    return writer.getBuffer().toString();
   }
 
   private void incrementPendingJSCalls() {
@@ -409,28 +414,18 @@ public class CatalystInstanceImpl implements CatalystInstance {
     }
   }
 
-  @Override
-  protected void finalize() throws Throwable {
-    Assertions.assertCondition(mDestroyed, "Bridge was not destroyed before finalizer!");
-    super.finalize();
-  }
-
   private class NativeModulesReactCallback implements ReactCallback {
 
     @Override
-    public void call(ExecutorToken executorToken, int moduleId, int methodId, ReadableNativeArray parameters) {
+    public void call(int moduleId, int methodId, ReadableNativeArray parameters) {
       mReactQueueConfiguration.getNativeModulesQueueThread().assertIsOnThread();
 
-      if (mIsBeingDestroyed) {
+      // Suppress any callbacks if destroyed - will only lead to sadness.
+      if (mDestroyed) {
         return;
       }
-      synchronized (mJSToJavaCallsTeardownLock) {
-        // Suppress any callbacks if destroyed - will only lead to sadness.
-        if (mDestroyed) {
-          return;
-        }
-        mJavaRegistry.call(CatalystInstanceImpl.this, executorToken, moduleId, methodId, parameters);
-      }
+
+      mJavaRegistry.call(CatalystInstanceImpl.this, moduleId, methodId, parameters);
     }
 
     @Override
@@ -441,13 +436,7 @@ public class CatalystInstanceImpl implements CatalystInstance {
       // native modules could be in a bad state so we don't want to call anything on them. We
       // still want to trigger the debug listener since it allows instrumentation tests to end and
       // check their assertions without waiting for a timeout.
-      if (mIsBeingDestroyed) {
-        return;
-      }
-      synchronized (mJSToJavaCallsTeardownLock) {
-        if (mDestroyed) {
-          return;
-        }
+      if (!mDestroyed) {
         Systrace.beginSection(Systrace.TRACE_TAG_REACT_JAVA_BRIDGE, "onBatchComplete");
         try {
           mJavaRegistry.onBatchComplete();
@@ -457,29 +446,6 @@ public class CatalystInstanceImpl implements CatalystInstance {
       }
 
       decrementPendingJSCalls();
-    }
-
-    @Override
-    public void onExecutorUnregistered(ExecutorToken executorToken) {
-      mReactQueueConfiguration.getNativeModulesQueueThread().assertIsOnThread();
-
-      // Since onCatalystInstanceDestroy happens on the UI thread, we don't want to also execute
-      // this callback on the native modules thread at the same time. Longer term, onCatalystInstanceDestroy
-      // should probably be executed on the native modules thread as well instead.
-      if (mIsBeingDestroyed) {
-        return;
-      }
-      synchronized (mJSToJavaCallsTeardownLock) {
-        if (mDestroyed) {
-          return;
-        }
-        Systrace.beginSection(Systrace.TRACE_TAG_REACT_JAVA_BRIDGE, "onExecutorUnregistered");
-        try {
-          mJavaRegistry.onExecutorUnregistered(executorToken);
-        } finally {
-          Systrace.endSection(Systrace.TRACE_TAG_REACT_JAVA_BRIDGE);
-        }
-      }
     }
   }
 
@@ -504,13 +470,12 @@ public class CatalystInstanceImpl implements CatalystInstance {
   private class JSProfilerTraceListener implements TraceListener {
     @Override
     public void onTraceStarted() {
-      getJSModule(Assertions.assertNotNull(mMainExecutorToken), com.facebook.react.bridge.Systrace.class).setEnabled(
-          true);
+      getJSModule(com.facebook.react.bridge.Systrace.class).setEnabled(true);
     }
 
     @Override
     public void onTraceStopped() {
-      getJSModule(Assertions.assertNotNull(mMainExecutorToken), com.facebook.react.bridge.Systrace.class).setEnabled(false);
+      getJSModule(com.facebook.react.bridge.Systrace.class).setEnabled(false);
     }
   }
 
@@ -519,7 +484,7 @@ public class CatalystInstanceImpl implements CatalystInstance {
     private @Nullable ReactQueueConfigurationSpec mReactQueueConfigurationSpec;
     private @Nullable JSBundleLoader mJSBundleLoader;
     private @Nullable NativeModuleRegistry mRegistry;
-    private @Nullable JavaScriptModuleRegistry mJSModuleRegistry;
+    private @Nullable JavaScriptModulesConfig mJSModulesConfig;
     private @Nullable JavaScriptExecutor mJSExecutor;
     private @Nullable NativeModuleCallExceptionHandler mNativeModuleCallExceptionHandler;
 
@@ -534,8 +499,8 @@ public class CatalystInstanceImpl implements CatalystInstance {
       return this;
     }
 
-    public Builder setJSModuleRegistry(JavaScriptModuleRegistry jsModuleRegistry) {
-      mJSModuleRegistry = jsModuleRegistry;
+    public Builder setJSModulesConfig(JavaScriptModulesConfig jsModulesConfig) {
+      mJSModulesConfig = jsModulesConfig;
       return this;
     }
 
@@ -560,7 +525,7 @@ public class CatalystInstanceImpl implements CatalystInstance {
           Assertions.assertNotNull(mReactQueueConfigurationSpec),
           Assertions.assertNotNull(mJSExecutor),
           Assertions.assertNotNull(mRegistry),
-          Assertions.assertNotNull(mJSModuleRegistry),
+          Assertions.assertNotNull(mJSModulesConfig),
           Assertions.assertNotNull(mJSBundleLoader),
           Assertions.assertNotNull(mNativeModuleCallExceptionHandler));
     }
